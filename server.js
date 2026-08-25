@@ -6,7 +6,7 @@ import { readFileSync } from 'fs';
 import { dirname, join, extname, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import {
-  getSettings, saveSettings,
+  getSettings, saveSettings, getAuth, saveAuth,
   listReminders, getReminder, createReminder, updateReminder, deleteReminder
 } from './lib/store.js';
 import { validateAndBuild, nextOccurrence } from './lib/schedule.js';
@@ -43,9 +43,10 @@ function unauthorized(res){
   res.end('Unauthorized');
 }
 function checkAuth(req){
-  if(!process.env.AUTH_USER) return true; // 未设置则开放（务必设置 AUTH_USER/AUTH_PASS）
+  const {user, pass} = getAuth();
+  if(!user) return true; // 未设置则开放（务必设置登录账号/密码）
   const h = req.headers['authorization'] || '';
-  const exp = 'Basic ' + Buffer.from(process.env.AUTH_USER + ':' + (process.env.AUTH_PASS||'')).toString('base64');
+  const exp = 'Basic ' + Buffer.from(user + ':' + (pass||'')).toString('base64');
   return h === exp;
 }
 function serveStatic(req, res, pathname){
@@ -86,9 +87,13 @@ async function handleApi(req, res, url){
       resend_key:    b.resend_key    || '',
       email_from:    b.email_from    || '',
       email_to:      b.email_to      || '',
-      tz:            tz2
-    });
-    return sendJson(res, 200, {ok:true});
+    tz:            tz2
+  });
+  // 登录凭证：网页直接改，立即生效（密码留空则不覆盖原密码）
+  if(b.auth_user !== undefined || b.auth_pass !== undefined){
+    saveAuth((b.auth_user||'').trim(), (b.auth_pass||'').trim());
+  }
+  return sendJson(res, 200, {ok:true});
   }
   if(url.pathname === '/api/reminders' && method === 'GET'){
     const items = listReminders().slice().sort((a,b)=>(a.next_run||0)-(b.next_run||0));
@@ -193,7 +198,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`定时提醒服务已启动: http://localhost:${PORT}`);
-  if(!process.env.AUTH_USER) console.log('⚠️  未设置 AUTH_USER/AUTH_PASS，管理页任何人可访问！请在 .env 里配置。');
+  if(!getAuth().user) console.log('⚠️  未设置登录账号/密码，管理页任何人可访问！请在「⚙ 设置」里配置，或在 .env 配置 AUTH_USER/AUTH_PASS。');
   checkAndSend();                       // 启动即扫描一次
   setInterval(checkAndSend, SCAN_INTERVAL_MS); // 之后每 30 秒扫描
 });

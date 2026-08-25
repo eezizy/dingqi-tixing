@@ -201,6 +201,15 @@
     <label>时区 <span class="help" tabindex="0" data-tip="用于计算触发时刻，默认 Asia/Shanghai。填 IANA 时区名，如 America/New_York。">❓</span></label>
     <input id="s_tz" placeholder="Asia/Shanghai">
 
+    <hr style="border:none;border-top:1px solid rgba(128,128,128,.3);margin:16px 0">
+
+    <div style="font-weight:600;margin:6px 0">🔐 管理登录（网页直接改，无需重启）</div>
+    <label>管理账号 <span class="help" tabindex="0" data-tip="用于登录本管理页（Basic Auth）。修改后立即生效，不需要重启服务。">❓</span></label>
+    <input id="s_auth_user" placeholder="登录账号">
+
+    <label>管理密码 <span class="help" tabindex="0" data-tip="用于登录本管理页。留空表示不修改（保留当前密码）；填写新密码即立即生效，无需重启。">❓</span></label>
+    <input id="s_auth_pass" type="password" placeholder="留空则不修改" autocomplete="off">
+
     <div class="modal-actions">
       <button class="btn-ghost" id="setCancel">取消</button>
       <button class="btn-primary" id="setSave">保存设置</button>
@@ -411,6 +420,7 @@ async function loadSettings(){
     $('s_from').value     = s.email_from    || '';
     $('s_to').value       = s.email_to      || '';
     $('s_tz').value       = s.tz            || 'Asia/Shanghai';
+    $('s_auth_user').value = s.auth_user    || '';
     const ready = s.wx_corpid || s.resend_key || s.wx_corpsecret || s.email_from;
     $('setBtn').textContent = ready ? '⚙ 设置✓' : '⚙ 设置';
   }catch(e){}
@@ -424,7 +434,9 @@ async function saveSettings(){
     resend_key:    $('s_key').value.trim(),
     email_from:    $('s_from').value.trim(),
     email_to:      $('s_to').value.trim(),
-    tz:            $('s_tz').value.trim() || 'Asia/Shanghai'
+    tz:            $('s_tz').value.trim() || 'Asia/Shanghai',
+    auth_user:     $('s_auth_user').value.trim(),
+    auth_pass:     $('s_auth_pass').value
   };
   try{
     await api('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
