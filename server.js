@@ -11,6 +11,7 @@ import {
 } from './lib/store.js';
 import { validateAndBuild, nextOccurrence } from './lib/schedule.js';
 import { fireReminder } from './lib/push.js';
+import * as session from './lib/session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, 'public');
@@ -38,16 +39,46 @@ function readBody(req){
     req.on('error', ()=> resolve({}));
   });
 }
+// ---------- cookie / session helpers ----------
+function parseCookies(req){
+  const out = {};
+  const h = req.headers['cookie'] || '';
+  h.split(';').forEach(p => {
+    const i = p.indexOf('=');
+    if(i < 0) return;
+    const k = p.slice(0, i).trim();
+    if(!k) return;
+    const v = decodeURIComponent(p.slice(i+1).trim());
+    out[k] = v;
+  });
+  return out;
+}
+function setSessionCookie(res, sid){
+  const maxAge = 7 * 24 * 60 * 60;
+  res.setHeader('Set-Cookie', `sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`);
+}
+function clearSessionCookie(res){
+  res.setHeader('Set-Cookie', 'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+}
+
 function unauthorized(res){
-  res.writeHead(401, {'WWW-Authenticate':'Basic realm="reminders"'});
-  res.end('Unauthorized');
+  // 返回 JSON + 不发送 WWW-Authenticate 头，避免现代浏览器（尤其手机端）
+  // 对 HTTP Basic Auth 不弹登录框而直接把 401 文本渲染出来的坑。
+  // 前端检测到 {needLogin:true} 自动跳登录页。
+  res.writeHead(401, {'Content-Type':'application/json; charset=utf-8'});
+  res.end(JSON.stringify({error: 'unauthorized', needLogin: true}));
 }
 function checkAuth(req){
   const {user, pass} = getAuth();
   if(!user) return true; // 未设置则开放（务必设置登录账号/密码）
+  // 1) 优先：cookie session（任何浏览器、任何协议都能用，治本 HTTP Basic Auth 手机端弹框问题）
+  const cookies = parseCookies(req);
+  if(cookies.sid && session.get(cookies.sid) === user) return true;
+  // 2) 兼容：HTTP Basic Auth（curl / 旧电脑）
   const h = req.headers['authorization'] || '';
   const exp = 'Basic ' + Buffer.from(user + ':' + (pass||'')).toString('base64');
-  return h === exp;
+  if(h === exp) return true;
+  return false;
 }
 function serveStatic(req, res, pathname){
   let rel = pathname === '/' ? '/index.html' : pathname;
@@ -70,6 +101,33 @@ async function handleApi(req, res, url){
   const tz = cfg.tz;
   const method = req.method;
 
+  // ---- 登录相关（免鉴权） ----
+  if(url.pathname === '/api/login' && method === 'POST'){
+    const b = await readBody(req);
+    const {user, pass} = getAuth();
+    const u = (b.user || '').trim();
+    const p = String(b.pass || '');
+    if(!user) return sendJson(res, 400, {error: '未设置登录账号/密码，请先在「⚙ 设置」里配置'});
+    if(u !== user || p !== (pass || '')) return sendJson(res, 401, {error: '账号或密码错误'});
+    const sid = session.create(user);
+    setSessionCookie(res, sid);
+    return sendJson(res, 200, {ok: true, user});
+  }
+  if(url.pathname === '/api/logout' && method === 'POST'){
+    const cookies = parseCookies(req);
+    if(cookies.sid) session.destroy(cookies.sid);
+    clearSessionCookie(res);
+    return sendJson(res, 200, {ok: true});
+  }
+  if(url.pathname === '/api/me' && method === 'GET'){
+    const {user} = getAuth();
+    if(!user) return sendJson(res, 200, {logged: false, authRequired: false});
+    const cookies = parseCookies(req);
+    const u = cookies.sid ? session.get(cookies.sid) : null;
+    if(u && u === user) return sendJson(res, 200, {logged: true, user: u});
+    return sendJson(res, 200, {logged: false, authRequired: true});
+  }
+  // ---- 业务接口 ----
   if(url.pathname === '/api/config' && method === 'GET'){
     return sendJson(res, 200, {tz, serverNow: Date.now()});
   }
@@ -184,10 +242,13 @@ async function checkAndSend(){
 }
 
 // ---------- 主服务 ----------
+// 免鉴权的路径（登录相关 + 健康检查 + 时区查询）
+const PUBLIC_API = new Set(['/api/login', '/api/logout', '/api/me', '/api/config', '/health']);
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if(url.pathname === '/health'){ res.writeHead(200); res.end('ok'); return; }
-  if(!checkAuth(req)){ return unauthorized(res); }
+  if(!PUBLIC_API.has(url.pathname) && !checkAuth(req)){ return unauthorized(res); }
   if(url.pathname.startsWith('/api/')){
     try { await handleApi(req, res, url); }
     catch(e){ console.error('API error:', e); sendJson(res, 500, {error:'server error'}); }
@@ -199,6 +260,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`定时提醒服务已启动: http://localhost:${PORT}`);
   if(!getAuth().user) console.log('⚠️  未设置登录账号/密码，管理页任何人可访问！请在「⚙ 设置」里配置，或在 .env 配置 AUTH_USER/AUTH_PASS。');
-  checkAndSend();                       // 启动即扫描一次
+  session.cleanupAll();                     // 启动时清理过期 session
+  checkAndSend();                           // 启动即扫描一次
   setInterval(checkAndSend, SCAN_INTERVAL_MS); // 之后每 30 秒扫描
 });

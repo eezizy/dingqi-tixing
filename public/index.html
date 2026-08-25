@@ -94,9 +94,43 @@
   .toast.show{opacity:1}
   .toast.err{border-color:var(--danger);color:#ffd2d2}
   .toast.ok{border-color:var(--ok);color:#c8f5e4}
+
+  /* 登录页（手机/任何浏览器通用，不依赖 HTTP Basic Auth 弹框） */
+  #login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .login-card{width:100%;max-width:380px;background:var(--card-solid);border:1px solid var(--line);border-radius:18px;padding:30px 26px;box-shadow:var(--shadow);animation:rise .35s ease both}
+  .login-logo{width:60px;height:60px;border-radius:18px;display:grid;place-items:center;font-size:30px;margin:0 auto 16px;background:linear-gradient(135deg,var(--brand),var(--brand2));box-shadow:0 10px 24px rgba(108,140,255,.4)}
+  .login-title{font-size:22px;margin:0 0 4px;text-align:center}
+  .login-sub{color:var(--muted);font-size:13px;margin:0 0 22px;text-align:center}
+  .login-card label{display:block;font-size:12px;color:var(--muted);margin:14px 0 6px}
+  .login-card input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 13px;font-size:14px;font-family:inherit;transition:.15s}
+  .login-card input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(108,140,255,.18);background:rgba(108,140,255,.06)}
+  .login-btn{width:100%;margin-top:22px;padding:12px;font-size:14px}
+  .login-err{color:#ff9b9b;font-size:12.5px;margin-top:14px;min-height:16px;text-align:center}
 </style>
 </head>
 <body>
+
+<!-- 登录页（任何浏览器/任何协议下都能用，不依赖浏览器 HTTP Basic Auth 弹框） -->
+<div id="login-page">
+  <div style="width:100%;max-width:380px">
+    <div class="login-card">
+      <div class="login-logo">⏰</div>
+      <h1 class="login-title">定时提醒</h1>
+      <p class="login-sub" id="login-sub">请输入登录账号和密码</p>
+      <form id="loginForm" autocomplete="on">
+        <label>账号</label>
+        <input id="login_user" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+        <label>密码</label>
+        <input id="login_pass" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit" class="btn-primary login-btn" id="loginBtn">登 录</button>
+        <div class="login-err" id="loginErr"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 主应用（登录后才显示） -->
+<div id="app" class="hidden">
 <div class="wrap">
   <header>
     <div class="brand">
@@ -108,12 +142,14 @@
     </div>
     <div class="tools">
       <span class="stats" id="stats"></span>
+      <button class="btn-ghost" id="logoutBtn" title="登出">🚪 登出</button>
       <button class="btn-ghost" id="setBtn">⚙ 设置</button>
       <button class="btn-primary" id="addBtn">+ 添加提醒</button>
     </div>
   </header>
   <div id="list"></div>
 </div>
+</div><!-- /#app（modal/toast 顶层，避免被 #app 隐藏） -->
 
 <!-- 添加/编辑弹窗 -->
 <div class="overlay" id="overlay">
@@ -233,8 +269,9 @@ function toast(msg, type){
 }
 
 async function api(path, opts){
-  const res = await fetch(path, opts);
+  const res = await fetch(path, Object.assign({credentials:'same-origin'}, opts||{}));
   const data = await res.json().catch(()=>({}));
+  if(res.status === 401 && data.needLogin){ showLogin('请先登录'); throw new Error('not logged in'); }
   if(!res.ok) throw new Error(data.error || ('请求失败 '+res.status));
   return data;
 }
@@ -450,8 +487,69 @@ $('setCancel').onclick = ()=> $('setOverlay').classList.remove('show');
 $('setSave').onclick = saveSettings;
 $('setOverlay').addEventListener('click', e=>{ if(e.target===$('setOverlay')) $('setOverlay').classList.remove('show'); });
 
-load();
-loadSettings();
+// ---------- 登录态 ----------
+function showLogin(errMsg){
+  $('login-page').classList.remove('hidden');
+  $('app').classList.add('hidden');
+  $('loginErr').textContent = errMsg || '';
+  setTimeout(()=> $('login_user').focus(), 50);
+}
+function showApp(){
+  $('login-page').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('login_user').value = '';
+  $('login_pass').value = '';
+  $('loginErr').textContent = '';
+}
+async function doLogin(e){
+  if(e) e.preventDefault();
+  $('loginBtn').disabled = true;
+  $('loginErr').textContent = '';
+  try{
+    const r = await fetch('/api/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body: JSON.stringify({user: $('login_user').value.trim(), pass: $('login_pass').value})
+    });
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok){ $('loginErr').textContent = data.error || ('登录失败 '+r.status); return; }
+    showApp();
+    await load();
+    await loadSettings();
+  }catch(err){
+    $('loginErr').textContent = '网络错误：'+err.message;
+  }finally{
+    $('loginBtn').disabled = false;
+  }
+}
+async function doLogout(){
+  try{ await fetch('/api/logout',{method:'POST', credentials:'same-origin'}); }catch(e){}
+  showLogin();
+}
+$('loginForm').onsubmit = doLogin;
+$('logoutBtn').onclick = doLogout;
+
+// 入口：先查 /api/me，根据登录态决定显示登录页还是主应用
+(async function init(){
+  try{
+    const me = await fetch('/api/me',{credentials:'same-origin'}).then(r=>r.json());
+    if(me && me.logged){
+      showApp();
+      await load();
+      await loadSettings();
+    } else if(me && me.authRequired){
+      showLogin();
+    } else {
+      // authRequired:false → 未设登录密码（开发模式）→ 直接进
+      showApp();
+      await load();
+      await loadSettings();
+    }
+  }catch(e){
+    showLogin('无法连接服务：'+e.message);
+  }
+})();
 </script>
 </body>
 </html>
