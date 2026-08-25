@@ -36,7 +36,7 @@ node server.js              # 默认监听 8080
 
 ## 部署到 VPS（手动 SSH 路线 · 已实战验证）
 
-> 适用：任意 Linux VPS（已验证 racknerd + Debian/Ubuntu）。**不需要 1Panel 的"Node 项目"功能**，纯 SSH 即可跑。下面路径以 `/dtx/server` 为例，可换成任意目录。
+> 适用：任意 Linux VPS（Debian/Ubuntu/CentOS 等）。**不需要 1Panel 的"Node 项目"功能**，纯 SSH 即可跑。下面路径以 `/opt/dingqi-tixing` 为例，可换成任意目录。
 
 ### 1. 安装 Node（官方二进制，不用 apt 老版本）
 
@@ -53,8 +53,8 @@ node -v     # 应输出 v22.22.2
 
 把 `server/` 整个文件夹传到 VPS（任选其一）：
 
-- **1Panel 文件管理**：直接拖拽 `server/` 文件夹到 `/dtx/server`
-- **scp**：`scp -r server/ root@<VPS_IP>:/dtx/server`
+- **1Panel 文件管理**：直接拖拽 `server/` 文件夹到 `/opt/dingqi-tixing`
+- **scp**：`scp -r server/ root@<VPS_IP>:/opt/dingqi-tixing`
 - **git clone**：把本仓库 clone 到 VPS 后 `cd server`
 
 ### 3. 放行防火墙（关键！否则外网 502）
@@ -71,7 +71,7 @@ ufw status    # 确认 8080/tcp 在 ALLOW 列表里
 ### 4. 后台启动（关 SSH 也活）
 
 ```bash
-cd /dtx/server
+cd /opt/dingqi-tixing
 
 # 先清掉可能残留的进程
 pkill -f "node server.js" 2>/dev/null
@@ -101,9 +101,9 @@ curl -s -u admin:你的密码 http://localhost:8080/api/config
 
 ### 7.（可选）域名 + HTTPS（1Panel 反向代理）
 
-- 1Panel → 网站 → 反向代理：`域名 dsrw-rn.eezizy.de` → 目标 `127.0.0.1:8080`
+- 1Panel → 网站 → 反向代理：`域名 <your-subdomain.your-domain>` → 目标 `127.0.0.1:8080`
 - 反向代理里一键申请 Let's Encrypt 证书（自动 HTTPS）
-- Cloudflare DNS 加 A 记录：`dsrw-rn.eezizy.de` → `<VPS_IP>`
+- Cloudflare DNS 加 A 记录：`<your-subdomain.your-domain>` → `<VPS_IP>`
 - 想走 CF 代理（橙色云）需加 Origin Rule 带 Host；否则用灰色云（DNS only）最简单
 
 ### 8.（可选）开机自启（systemd，比 nohup 更稳）
@@ -115,7 +115,7 @@ Description=定时提醒
 After=network.target
 
 [Service]
-WorkingDirectory=/dtx/server
+WorkingDirectory=/opt/dingqi-tixing
 Environment=AUTH_USER=admin
 Environment=AUTH_PASS=你的密码
 Environment=PORT=8080
@@ -156,7 +156,7 @@ systemctl enable --now dingqi
 
 ### 正式方案（不被反垃圾拦）
 
-Resend → Domains 加您正经域名（如 `eezizy.de`）→ 按指引配 DKIM/CNAME 到 Cloudflare DNS → 发件地址改 `noreply@dsw-rn.eezizy.de`，收件邮箱即可填任意地址。
+Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 到您的 DNS 服务商 → 发件地址改 `noreply@<your-subdomain.your-domain>`，收件邮箱即可填任意地址。
 
 ---
 
