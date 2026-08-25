@@ -167,7 +167,7 @@ Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 
 
 数据在 `server/data/` 目录（`reminders.json` + `settings.json`）。备份时复制这个目录即可。**注意 `settings.json` 含凭证明文，勿公开分享。**
 
-## 迁移到新服务器（如 racknerd → netcup）
+## 迁移到新服务器（例如从旧 VPS 迁到当前 netcup）
 
 `data/` 不进 git，换机器不会自动带过来。两种迁法：
 
