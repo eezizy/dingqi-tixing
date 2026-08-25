@@ -30,7 +30,7 @@ node server.js              # 默认监听 8080
 # 浏览器打开 http://localhost:8080
 ```
 
-不设 `AUTH_USER` 则管理页任何人可访问；生产务必设 `AUTH_USER` / `AUTH_PASS`（命令行环境变量或在网页「⚙ 设置」填）。
+不设 `AUTH_USER` 则管理页任何人可访问；生产务必设 `AUTH_USER` / `AUTH_PASS`（命令行环境变量，或启动后在网页「⚙ 设置 → 🔐 管理登录」里填——**网页改密码即时生效、无需重启**）。
 
 ---
 
@@ -47,6 +47,7 @@ tar -xf node.tar.xz
 cp -r node-v22.22.2-linux-x64/{bin,include,lib,share} /usr/local/
 hash -r
 node -v     # 应输出 v22.22.2
+# ⚠️ 下载文件名是 node-v22.22.2-linux-x64.tar.xz（末尾 .tar.xz 两个点），别漏成 .tarx 否则 404
 ```
 
 ### 2. 上传代码
@@ -55,7 +56,7 @@ node -v     # 应输出 v22.22.2
 
 - **1Panel 文件管理**：直接拖拽 `server/` 文件夹到 `/opt/dingqi-tixing`
 - **scp**：`scp -r server/ root@<VPS_IP>:/opt/dingqi-tixing`
-- **git clone**：把本仓库 clone 到 VPS 后 `cd server`
+- **git clone（推荐，公开库免认证）**：`git clone https://github.com/eezizy/dingqi-tixing.git && cd dingqi-tixing/server`。**注意 `data/` 已被 gitignore，clone 下来是空的，提醒需网页重建或从旧机迁移**（见下「迁移到新服务器」）
 
 ### 3. 放行防火墙（关键！否则外网 502）
 
@@ -67,6 +68,8 @@ ufw status    # 确认 8080/tcp 在 ALLOW 列表里
 
 > 如果 VPS 用的是 firewalld 而非 ufw：
 > `firewall-cmd --permanent --add-port=8080/tcp && firewall-cmd --reload`
+>
+> ⚠️ **netcup 等部分套餐带外部硬件防火墙**：系统里 ufw 放行了、`ss` 也显示监听，外网仍可能不通。这种情况要去 netcup 控制台（SCP/CCP）加一条 **TCP 8080 入站**规则才生效。
 
 ### 4. 后台启动（关 SSH 也活）
 
@@ -163,6 +166,17 @@ Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 
 ## 数据备份
 
 数据在 `server/data/` 目录（`reminders.json` + `settings.json`）。备份时复制这个目录即可。**注意 `settings.json` 含凭证明文，勿公开分享。**
+
+## 迁移到新服务器（如 racknerd → netcup）
+
+`data/` 不进 git，换机器不会自动带过来。两种迁法：
+
+- **网页重建**：新机部署后，登录网页手动加提醒（适合提醒少）
+- **文件迁移**：把旧机的 `server/data/reminders.json` + `settings.json` 复制（或发给我，我帮您在新机生成），新机覆盖到 `data/` 后重启服务即可
+
+> 迁移前先确认旧机提醒已导出，避免关旧机后丢数据。
+
+---
 
 ## 与 Cloudflare 版的区别
 
