@@ -183,8 +183,8 @@ Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 
 部署和日常运维中真实踩过的坑，按出现频率排序，照着避即可。
 
 ### 1. 生产域名拼错（最常见）
-- 正确：`https://dsrw-nc.eezizy.de`（**d-s-r-w**-nc，不是 dsw-nc）
-- 现象：人脑默认写成 dsw-nc，导致访问/文档全错。引用前务必核对。
+- 正确前缀 `dsrw-nc`（**d-s-r-w**-nc，不是 dsw-nc）；完整访问地址按你自己的 netcup 域名拼接，如 `https://dsrw-nc.<你的域名>`。
+- 现象：人脑默认写成 dsw-nc（漏了中间的 r），导致访问/文档全错。引用前务必核对。
 
 ### 2. Node 下载文件名 404
 - 正确：`node-v22.22.2-linux-x64.tar.xz`（末尾 `.tar.xz` 两个点）
