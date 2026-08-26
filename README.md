@@ -14,7 +14,7 @@
 - 每条提醒可点「测试」立即推送
 - 进程内每 30 秒扫描一次到期提醒并自动推送
 - ⚙ 设置弹窗填凭证，挂 ❓ 悬停配置指南
-- Basic Auth 保护管理页
+- 网页登录（Form 登录 + cookie session）保护管理页
 
 ## 技术栈
 
@@ -30,7 +30,7 @@ node server.js              # 默认监听 8080
 # 浏览器打开 http://localhost:8080
 ```
 
-不设 `AUTH_USER` 则管理页任何人可访问；生产务必设 `AUTH_USER` / `AUTH_PASS`（命令行环境变量，或启动后在网页「⚙ 设置 → 🔐 管理登录」里填——**网页改密码即时生效、无需重启**）。
+不设 `AUTH_USER` 则管理页任何人可访问；生产务必设 `AUTH_USER` / `AUTH_PASS`（命令行环境变量，或启动后在网页「⚙ 设置 → 🔐 管理登录」里填——**网页改密码即时生效、无需重启**）。优先级：**网页设置的 `settings.json` > 启动环境变量**（已在网页设过账号，改启动命令的 `AUTH_USER` 会被忽略）。
 
 ---
 
@@ -56,7 +56,7 @@ node -v     # 应输出 v22.22.2
 
 - **1Panel 文件管理**：直接拖拽 `server/` 文件夹到 `/opt/dingqi-tixing`
 - **scp**：`scp -r server/ root@<VPS_IP>:/opt/dingqi-tixing`
-- **git clone（推荐，公开库免认证）**：`git clone https://github.com/eezizy/dingqi-tixing.git && cd dingqi-tixing/server`。**注意 `data/` 已被 gitignore，clone 下来是空的，提醒需网页重建或从旧机迁移**（见下「迁移到新服务器」）
+- **git clone（推荐，公开库免认证）**：`git clone https://github.com/eezizy/dingqi-tixing.git dingqi-tixing && cd dingqi-tixing`（仓库根即服务代码，`cd dingqi-tixing` 即可，**不要再加 `/server`**）。**注意 `data/` 已被 gitignore，clone 下来是空的，提醒需网页重建或从旧机迁移**（见下「迁移到新服务器」）
 
 ### 3. 放行防火墙（关键！否则外网 502）
 
@@ -175,6 +175,50 @@ Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 
 - **文件迁移**：把旧机的 `server/data/reminders.json` + `settings.json` 复制（或发给我，我帮您在新机生成），新机覆盖到 `data/` 后重启服务即可
 
 > 迁移前先确认旧机提醒已导出，避免关旧机后丢数据。
+
+---
+
+## 踩坑与排错（避坑指南）
+
+部署和日常运维中真实踩过的坑，按出现频率排序，照着避即可。
+
+### 1. 生产域名拼错（最常见）
+- 正确：`https://dsrw-nc.eezizy.de`（**d-s-r-w**-nc，不是 dsw-nc）
+- 现象：人脑默认写成 dsw-nc，导致访问/文档全错。引用前务必核对。
+
+### 2. Node 下载文件名 404
+- 正确：`node-v22.22.2-linux-x64.tar.xz`（末尾 `.tar.xz` 两个点）
+- 错写 `tarx`（漏点）→ 404。复制命令时别手滑。
+
+### 3. 外网 502（防火墙没全开）
+- 系统 `ufw allow 8080/tcp` 只开系统层；**netcup 等带外部硬件防火墙的套餐，还要去控制台（SCP/CCP）加 TCP 8080 入站规则**，否则 ufw 放行了、`ss` 也监听，外网仍不通。
+- 排错四连：`curl http://127.0.0.1:8080/api/me`（本机）→ `ss -ltnp | grep 8080`（进程在听）→ `ufw status`（系统放行）→ 控制台硬件防火墙（外部放行）。
+
+### 4. 浏览器登录死锁（已修：commit fb2c36a）
+- **现象**：未登录时访问首页，浏览器渲染出一堆 JSON（如 `{"error":"unauthorized"}`）而非登录页；360/手机尤其明显，Chrome 因有旧 cookie 正常。
+- **根因**：原来只对 `/api/*` 白名单免鉴权，`/` 不在内 → 未登录访问 `/` 返回 401 JSON → 拿不到 HTML → 看不到登录页 → 永远登不进，形成死锁。
+- **修复**：新增 `isPublicPath()`，让 `/`、`/index.html`、静态资源免鉴权；业务 API 仍 401 受保护。所有响应加 `Cache-Control: no-store` 防 401 JSON 被缓存当首页。
+
+### 5. 手机不弹登录框（已修：commit e079ba2）
+- **现象**：手机（iOS Safari 裸 IP:8080）访问直接渲染 "Unauthorized" 纯文本，不弹登录框。
+- **根因**：现代浏览器对 HTTP 明文站点的 Basic Auth 弹框策略收紧，手机端不弹框、直接把 401 body 当文本渲染；电脑 Chrome 宽松才弹框。
+- **修复**：改成 Form 登录（网页输入账号密码）+ cookie session（`lib/session.js`，7 天 TTL，持久化 `data/sessions.json`，重启不丢），401 改为返回 JSON `{needLogin:true}` 且不发 `WWW-Authenticate` 头，前端自动跳登录页。
+
+### 6. 登录凭证优先级（改用户名别改错地方）
+- 优先级：**网页「⚙ 设置 → 🔐 管理登录」写的 `settings.json` > 启动命令的 `AUTH_USER`/`AUTH_PASS` 环境变量**。
+- 若已在网页设过账号 → 启动命令里的 `AUTH_USER` 被忽略，改 env 重启也不变。想换用户名去网页改最稳（即时生效、无需重启）。
+- 改用户名会让所有已登录浏览器掉线需重登（session 绑用户名，预期行为）。
+
+### 7. 更新代码安全（git pull 不碰数据）
+- `data/` 已被 `.gitignore` 排除，`git pull` 只更新代码，不会覆盖 `settings.json`（密码）和 `reminders.json`（提醒）。可放心 pull + 重启。
+- 更新流程：`cd <目录> && git pull` → `pkill -f "node server.js"; sleep 2` → 重新 `nohup ... node server.js`。
+
+### 8. 本地测试用 pkill 的坑（仅本机 Windows）
+- Linux/netcup 上 `pkill -f "node server.js"` 可靠。
+- **Windows Git Bash 下 pkill 不可靠**，会测到旧服务误判。本地测试改用 `netstat -ano | findstr :8080`（找 PID）→ `taskkill /F /PID <pid>`。
+
+### 9. 必须 nohup 后台
+- 前台 `node server.js` 一旦 SSH 窗口关闭，进程被杀，外网 502。务必 `nohup ... &` 或 systemd。
 
 ---
 
