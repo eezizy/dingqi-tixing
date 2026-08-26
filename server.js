@@ -28,7 +28,13 @@ const MIME = {
 
 // ---------- 工具 ----------
 function sendJson(res, status, obj){
-  res.writeHead(status, {'Content-Type':'application/json; charset=utf-8'});
+  res.writeHead(status, {
+    'Content-Type':'application/json; charset=utf-8',
+    // 防止任何浏览器/中间代理缓存 API 响应，避免下次访问看到陈旧的 401 JSON
+    'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0',
+    'Pragma':'no-cache',
+    'Expires':'0'
+  });
   res.end(JSON.stringify(obj));
 }
 function readBody(req){
@@ -87,7 +93,15 @@ function serveStatic(req, res, pathname){
   try{
     const content = readFileSync(filePath);
     const ext = extname(filePath);
-    res.writeHead(200, {'Content-Type': MIME[ext] || 'application/octet-stream'});
+    // HTML 必须 no-store：避免 Edge/360 等浏览器把上次的 401 JSON 当首页缓存复用
+    const isHtml = ext === '.html' || ext === '';
+    const headers = {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': isHtml
+        ? 'no-store, no-cache, must-revalidate, max-age=0'
+        : 'public, max-age=3600'
+    };
+    res.writeHead(200, headers);
     res.end(content);
   }catch(e){
     res.writeHead(404, {'Content-Type':'text/plain; charset=utf-8'});
@@ -242,13 +256,22 @@ async function checkAndSend(){
 }
 
 // ---------- 主服务 ----------
-// 免鉴权的路径（登录相关 + 健康检查 + 时区查询）
-const PUBLIC_API = new Set(['/api/login', '/api/logout', '/api/me', '/api/config', '/health']);
+// 免鉴权的路径：登录相关 + 健康检查 + 时区查询 + 根路径/静态资源
+// 根路径和静态资源必须免鉴权，否则会死锁（没登录→拿不到 HTML→看不到登录页→无法登录）
+const PUBLIC_API = new Set(['/api/login', '/api/logout', '/api/me', '/api/config', '/api/health']);
+// 静态资源也算公开（让 HTML/CSS/JS 任意访问，业务 API 才鉴权）
+function isPublicPath(p){
+  if(PUBLIC_API.has(p)) return true;
+  if(p === '/' || p === '/index.html') return true;
+  // 静态资源（/favicon.ico、/assets/xxx、/public/xxx 等）免鉴权
+  if(!p.startsWith('/api/')) return true;
+  return false;
+}
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if(url.pathname === '/health'){ res.writeHead(200); res.end('ok'); return; }
-  if(!PUBLIC_API.has(url.pathname) && !checkAuth(req)){ return unauthorized(res); }
+  if(url.pathname === '/api/health'){ res.writeHead(200); res.end('ok'); return; }
+  if(!isPublicPath(url.pathname) && !checkAuth(req)){ return unauthorized(res); }
   if(url.pathname.startsWith('/api/')){
     try { await handleApi(req, res, url); }
     catch(e){ console.error('API error:', e); sendJson(res, 500, {error:'server error'}); }
