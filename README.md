@@ -178,6 +178,30 @@ Resend → Domains 加您的域名（如 `your-domain.com`）→ 配 DKIM/CNAME 
 
 ---
 
+## 推送到 GitHub（代码备份 / 同步）
+
+代码仓：`https://github.com/eezizy/dingqi-tixing`（公开，README 已脱敏，可放心公开）。本地改动先 `git commit`，再按下面推：
+
+```bash
+# 1) 加回远程（PAT 内嵌在 URL，用完即删，不留本地痕迹）
+git remote add origin https://<PAT>@github.com/eezizy/dingqi-tixing.git
+
+# 2) 推送 master（fast-forward，不覆盖远程已有历史）
+git push -u origin master
+
+# 3) 推完立刻移除 remote，清掉 token 残留
+git remote remove origin
+```
+
+**要点**
+- PAT 用 **classic**（前缀 `ghp_`），勾 `repo` 权限；GitHub 已不支持账号密码 push，必须用令牌。
+- `<PAT>` 是一次性/复用令牌，**别写进任何文件**，只临时内嵌在 push 命令的 URL 里，推完即 `git remote remove origin`。
+- 同个时段内可复用同一个 PAT（皇上授权）：可保留 `origin` 直到收工，期间直接 `git push` 即可，不用每次重加；收工时一句"清掉 remote"就移除。
+- 若 push 被拒（非 fast-forward，比如曾在 GitHub 网页端改过 README）：先 `git pull --rebase` 合并再推，或确认无冲突后 `git push --force`（慎用）。
+- `data/` 已被 gitignore，push 只带走代码，不会上传 `settings.json`（密码）/ `reminders.json`（提醒）——参见避坑 #7。
+
+---
+
 ## 踩坑与排错（避坑指南）
 
 部署和日常运维中真实踩过的坑，按出现频率排序，照着避即可。
