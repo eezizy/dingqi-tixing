@@ -179,6 +179,40 @@ async function handleApi(req, res, url){
     return sendJson(res, 201, {ok:true, id});
   }
 
+  // 导出全部提醒为 JSON 文件（备份用，触发浏览器下载）
+  if(url.pathname === '/api/reminders/export' && method === 'GET'){
+    const items = listReminders();
+    const payload = { app:'dingqi-tixing', version:1, exportedAt:new Date().toISOString(), count:items.length, reminders:items };
+    const fname = 'reminders-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    res.writeHead(200, {
+      'Content-Type':'application/json; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="' + fname + '"',
+      'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0'
+    });
+    return res.end(JSON.stringify(payload, null, 2));
+  }
+
+  // 从备份文件批量导入提醒（迁移用：追加不覆盖，原 id 丢弃、按当前时区重算排期，保留启用/停用状态）
+  if(url.pathname === '/api/reminders/import' && method === 'POST'){
+    const b = await readBody(req);
+    const arr = Array.isArray(b) ? b : (b && Array.isArray(b.reminders) ? b.reminders : null);
+    if(!arr) return sendJson(res, 400, {error:'格式错误：期望提醒数组或 {"reminders":[...]}'});
+    let added = 0, skipped = 0;
+    for(const item of arr){
+      const rule = validateAndBuild({
+        title:item.title, content:item.content, unit:item.unit,
+        interval_num:item.interval_num, day_of_month:item.day_of_month,
+        month:item.month, hour:item.hour, minute:item.minute,
+        channel_wechat:item.channel_wechat, channel_email:item.channel_email
+      }, tz);
+      if(rule.error){ skipped++; continue; }
+      const newId = createReminder(rule);
+      updateReminder(newId, { active: item.active ? 1 : 0 });
+      added++;
+    }
+    return sendJson(res, 200, {ok:true, added, skipped, total:arr.length});
+  }
+
   const m = url.pathname.match(/^\/api\/reminders\/(\d+)(?:\/test)?$/);
   if(m){
     const id = +m[1];
