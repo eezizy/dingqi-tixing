@@ -67,4 +67,4 @@ sleep 2
 echo "=== systemctl status ==="
 systemctl status dingqi --no-pager | head -n 6
 echo "=== 健康检查 ==="
-curl -s http://127.0.0.1:8080/health || echo "health 失败，请查 run.log"
+curl -s http://127.0.0.1:8080/api/health || echo "health 失败，请查 run.log"
