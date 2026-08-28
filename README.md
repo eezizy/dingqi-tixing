@@ -88,7 +88,7 @@ sleep 2
 tail -n 5 run.log    # 应看到「定时提醒服务已启动: http://localhost:8080」
 ```
 
-> ⚠️ 必须用 `nohup ... &` 后台跑。前台 `node server.js` 一旦 SSH 窗口关闭，进程会被杀掉，外网就 502 了。
+> ⚠️ nohup 仅适合临时调试。**生产环境强烈推荐用 systemd 守护（见第 8 节）**——nohup 进程在 VPS 重启/资源回收后不会自动拉起，会再次 502；systemd 可开机自启 + 崩溃自动拉起，一劳永逸。
 
 ### 5. 验证
 
@@ -109,30 +109,25 @@ curl -s -u admin:你的密码 http://localhost:8080/api/config
 - Cloudflare DNS 加 A 记录：`<your-subdomain.your-domain>` → `<VPS_IP>`
 - 想走 CF 代理（橙色云）需加 Origin Rule 带 Host；否则用灰色云（DNS only）最简单
 
-### 8.（可选）开机自启（systemd，比 nohup 更稳）
+### 8. 生产部署：systemd 守护（推荐，一劳永逸）
 
-```ini
-# /etc/systemd/system/dingqi.service
-[Unit]
-Description=定时提醒
-After=network.target
+> **为什么用 systemd 而不是 nohup**：nohup 进程在 VPS 重启/资源回收后**不会自动拉起**，会再次 502（本项目 2026-08-28 就踩过）。systemd 单元设 `Restart=always`，开机自启 + 进程崩溃自动重启，彻底告别"VPS 抽风就 502"。
 
-[Service]
-WorkingDirectory=/opt/dingqi-tixing
-Environment=AUTH_USER=admin
-Environment=AUTH_PASS=你的密码
-Environment=PORT=8080
-ExecStart=/usr/local/bin/node server.js
-Restart=always
+仓库已自带两个文件，二选一即可（都在仓库根）：
 
-[Install]
-WantedBy=multi-user.target
-```
+- **`install-service.sh`（一键，推荐）**：自动检测 node 路径、停掉旧 nohup 进程、写 service、开机自启并启动、最后健康检查。
+  ```bash
+  cd ~/dingqi-tixing
+  bash install-service.sh            # 已在网页设过登录密码时
+  # bash install-service.sh 你的密码  # 还没在网页设过密码时，用 env 兜底
+  ```
+- **`dingqi.service`（手动）**：`cp dingqi.service /etc/systemd/system/` 后按需改 `WorkingDirectory` / `ExecStart` 的 node 路径，再：
+  ```bash
+  systemctl daemon-reload
+  systemctl enable --now dingqi
+  ```
 
-```bash
-systemctl daemon-reload
-systemctl enable --now dingqi
-```
+> 若未曾在网页「⚙设置 → 🔐 管理登录」设过登录密码，service 需注入 `Environment=AUTH_USER/AUTH_PASS`（脚本在传参时自动加；手动则在 `dingqi.service` 取消那两行注释并填密码）。已在网页设过则无需 env，进程读 `settings.json` 即可。
 
 ---
 
@@ -240,14 +235,14 @@ git remote remove origin
 
 ### 7. 更新代码安全（git pull 不碰数据）
 - `data/` 已被 `.gitignore` 排除，`git pull` 只更新代码，不会覆盖 `settings.json`（密码）和 `reminders.json`（提醒）。可放心 pull + 重启。
-- 更新流程：`cd <目录> && git pull` → `pkill -f "node server.js"; sleep 2` → 重新 `nohup ... node server.js`。
+- 更新流程（systemd）：`cd ~/dingqi-tixing && git pull && systemctl restart dingqi`（若用 nohup：pull 后 `pkill -f "node server.js"; sleep 2` 再重启）。
 
 ### 8. 本地测试用 pkill 的坑（仅本机 Windows）
 - Linux/netcup 上 `pkill -f "node server.js"` 可靠。
 - **Windows Git Bash 下 pkill 不可靠**，会测到旧服务误判。本地测试改用 `netstat -ano | findstr :8080`（找 PID）→ `taskkill /F /PID <pid>`。
 
-### 9. 必须 nohup 后台
-- 前台 `node server.js` 一旦 SSH 窗口关闭，进程被杀，外网 502。务必 `nohup ... &` 或 systemd。
+### 9. 后台运行：nohup 或 systemd
+- 前台 `node server.js` 一旦 SSH 窗口关闭，进程被杀，外网 502。两种保活：**① nohup（临时调试）** `nohup ... &`；**② systemd（生产推荐）** 见第 8 节，开机自启 + 崩溃自拉起。生产环境一律用 systemd。
 
 ---
 
@@ -279,6 +274,8 @@ server/
 ├── package.json
 ├── .env.example
 ├── .gitignore
+├── dingqi.service        # systemd 单元模板（配合 install-service.sh 或手动 cp）
+├── install-service.sh    # 一键安装 systemd 守护（开机自启 + 崩溃自拉起）
 └── README.md
 ```
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=Dingqi Tixing Reminder Service
+After=network.target
+
+[Service]
+Type=simple
+# 改成你的实际部署目录（git clone 下来的根，server.js 所在处）
+WorkingDirectory=/opt/dingqi-tixing
+# node 路径用 `which node` 查，常见 /usr/local/bin/node 或 /usr/bin/node
+ExecStart=/usr/local/bin/node server.js
+Restart=always
+RestartSec=3
+User=root
+# 若未在网页「⚙设置 → 🔐 管理登录」设过登录密码，取消下面两行注释并填密码
+# （env 仅作兜底，网页设置优先级更高；已在网页设过则无需这两行）
+# Environment=AUTH_USER=admin
+# Environment=AUTH_PASS=你的密码
+StandardOutput=append:/opt/dingqi-tixing/run.log
+StandardError=append:/opt/dingqi-tixing/run.log
+
+[Install]
+WantedBy=multi-user.target
